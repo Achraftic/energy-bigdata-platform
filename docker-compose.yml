@@ -1,0 +1,283 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    container_name: zookeeper
+    networks:
+      - default
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.1
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    networks:
+      - default
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  spark-master:
+    image: apache/spark:3.5.0-python3
+    container_name: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - default
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - PYTHONUNBUFFERED=1
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master --host spark-master
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  spark-worker:
+    image: apache/spark:3.5.0-python3
+    container_name: spark-worker
+    user: root
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    networks:
+      - default
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+
+  data-generator:
+    build:
+      context: ./data_generator
+    container_name: data-generator
+    networks:
+      - default
+    volumes:
+      - ./data_generator:/app
+
+  kafka-producer:
+    build:
+      context: ./kafka_producer
+    container_name: kafka-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      data-generator:
+        condition: service_started
+    networks:
+      - default
+    volumes:
+      - ./kafka_producer:/app
+      - ./data_generator:/app/data_generator
+    environment:
+      - KAFKA_BROKER=kafka:29092
+      - PYTHONUNBUFFERED=1
+
+  api:
+    build:
+      context: ./api
+    container_name: api
+    ports:
+      - "8000:8000"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    networks:
+      - default
+    volumes:
+      - ./api:/app
+
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: dashboard
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+    volumes:
+      - ./dashboard:/app
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    networks:
+      - default
+    volumes:
+      - namenode_data_new:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_permissions_enabled=false
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    depends_on:
+      - namenode
+    networks:
+      - default
+    volumes:
+      - datanode_data_new:/hadoop/dfs/data
+    environment:
+      - SERVICE_PRECONDITION=namenode:9870
+      - CLUSTER_NAME=test
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_permissions_enabled=false
+
+  cassandra:
+    image: cassandra:4.0
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    networks:
+      - default
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  cassandra-setup:
+    image: cassandra:4.0
+    container_name: cassandra-setup
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    networks:
+      - default
+    volumes:
+      - ./configs/cassandra-init.cql:/cassandra-init.cql
+    command: >
+      /bin/bash -c "
+      echo 'Cassandra is healthy, applying init script...';
+      cqlsh cassandra -f /cassandra-init.cql;
+      "
+
+  spark-streaming:
+    build:
+      context: .
+      dockerfile: spark_jobs/Dockerfile
+    container_name: spark-streaming
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    networks:
+      - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --executor-memory 512m
+      --total-executor-cores 1
+      --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+      /opt/spark/apps/spark_jobs/streaming_job.py
+
+  spark-batch:
+    build:
+      context: .
+      dockerfile: spark_jobs/Dockerfile
+    container_name: spark-batch
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    networks:
+      - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --executor-memory 512m
+      --total-executor-cores 1
+      --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0
+      /opt/spark/apps/spark_jobs/batch_job.py
+
+  hdfs-data-loader:
+    image: bde2020/hadoop-base:2.0.0-hadoop3.2.1-java8
+    container_name: hdfs-data-loader
+    depends_on:
+      - namenode
+      - datanode
+      - data-generator
+    networks:
+      - default
+    volumes:
+      - ./data_generator/energy_data.csv:/energy_data.csv
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Initializing HDFS config...";
+        export HADOOP_CONF_DIR=/etc/hadoop;
+        echo "Starting HDFS loader...";
+        until hdfs dfs -ls / > /dev/null 2>&1; do
+          echo "Waiting for NameNode...";
+          sleep 2;
+        done;
+        hdfs dfs -mkdir -p /user/root;
+        hdfs dfs -put -f /energy_data.csv /user/root/energy_data.csv;
+        echo "Upload complete!";
+        hdfs dfs -ls /user/root/;
+volumes:
+  cassandra_data:
+  namenode_data_new:
+  datanode_data_new:
+
+networks:
+  default:
+    name: energy_network
