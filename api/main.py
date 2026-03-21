@@ -51,19 +51,19 @@ def read_root():
 @app.get("/metrics")
 def get_metrics():
     session = get_session()
-    rows = session.execute("SELECT * FROM energy_data LIMIT 500")
+    rows = session.execute("SELECT * FROM energy_data LIMIT 1000")
     return list(rows)
 
 
 @app.get("/anomalies")
 def get_anomalies():
     session = get_session()
-    rows = session.execute("SELECT * FROM anomaly_data LIMIT 500")
+    rows = session.execute("SELECT * FROM anomaly_data LIMIT 1000")
     return list(rows)
 
 
 @app.get("/forecast")
 def get_forecast():
     session = get_session()
-    rows = session.execute("SELECT * FROM power_forecast LIMIT 500")
+    rows = session.execute("SELECT * FROM power_forecast LIMIT 1000")
     return list(rows)
