@@ -1,6 +1,7 @@
 from cassandra.cluster import Cluster
 from cassandra.query import dict_factory
 from fastapi import FastAPI
+import pandas as pd
 import logging
 import time
 
@@ -49,21 +50,78 @@ def read_root():
 
 
 @app.get("/metrics")
-def get_metrics():
+def get_metrics(region: str = None):
     session = get_session()
-    rows = session.execute("SELECT * FROM energy_data LIMIT 1000")
+    if region:
+        query = "SELECT * FROM energy_data WHERE region = %s LIMIT 1000"
+        rows = session.execute(query, [region])
+    else:
+        rows = session.execute("SELECT * FROM energy_data LIMIT 1000")
     return list(rows)
 
 
 @app.get("/anomalies")
-def get_anomalies():
+def get_anomalies(region: str = None):
     session = get_session()
-    rows = session.execute("SELECT * FROM anomaly_data LIMIT 1000")
+    if region:
+        query = "SELECT * FROM anomaly_data WHERE region = %s LIMIT 1000"
+        rows = session.execute(query, [region])
+    else:
+        rows = session.execute("SELECT * FROM anomaly_data LIMIT 1000")
     return list(rows)
 
 
 @app.get("/forecast")
-def get_forecast():
+def get_forecast(region: str = None):
     session = get_session()
-    rows = session.execute("SELECT * FROM power_forecast LIMIT 1000")
+    if region:
+        query = "SELECT * FROM power_forecast WHERE region = %s LIMIT 1000"
+        rows = session.execute(query, [region])
+    else:
+        rows = session.execute("SELECT * FROM power_forecast LIMIT 1000")
     return list(rows)
+
+
+@app.get("/regions")
+def get_regions():
+    session = get_session()
+    rows = session.execute("SELECT DISTINCT region FROM energy_data")
+    return [row['region'] for row in rows]
+
+
+@app.get("/stats/summary")
+def get_summary():
+    session = get_session()
+    # Fetch data to aggregate in Python for flexibility with the limited simulated set
+    rows = session.execute("SELECT region, production, consumption, voltage, frequency FROM energy_data LIMIT 2000")
+    df = pd.DataFrame(list(rows))
+    if df.empty:
+        return []
+    
+    # Calculate performance metrics
+    df['efficiency'] = df['production'] / df['consumption']
+    
+    summary = df.groupby('region').agg({
+        'production': 'mean',
+        'consumption': 'mean',
+        'voltage': 'mean',
+        'frequency': 'mean',
+        'efficiency': 'mean'
+    }).reset_index()
+    
+    summary.columns = ['region', 'avg_production', 'avg_consumption', 'avg_voltage', 'avg_frequency', 'efficiency_ratio']
+    return summary.to_dict('records')
+
+
+@app.get("/stats/efficiency")
+def get_efficiency():
+    session = get_session()
+    rows = session.execute("SELECT region, production, consumption FROM energy_data LIMIT 2000")
+    df = pd.DataFrame(list(rows))
+    if df.empty:
+        return []
+    
+    # Calculate efficiency ratio: Production / Consumption
+    df['efficiency'] = df['production'] / df['consumption']
+    efficiency = df.groupby('region')['efficiency'].mean().reset_index()
+    return efficiency.to_dict('records')

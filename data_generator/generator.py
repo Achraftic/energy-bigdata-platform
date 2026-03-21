@@ -128,13 +128,13 @@ def generate_data_point(current_time):
         "production": round(production, 2),
         "consumption": round(consumption, 2),
         "voltage": round(random.uniform(220, 240), 2),
-        "frequency": round(random.uniform(49.8, 50.2), 2),
+        "frequency": round(50.0 + (production - consumption) / 5000.0 + random.uniform(-0.05, 0.05), 2),
         "equipment_status": equipment_status,
     }
 
 
 # Generate batch data
-def generate_batch_data(filename="energy_data.csv", records_per_region=5000):
+def generate_batch_data(filename="energy_data.csv", records_per_region=500):
     print(f"Generating {records_per_region * len(regions)} records across {len(regions)} regions...")
     with open(filename, "w", newline="") as csvfile:
         fieldnames = [
@@ -208,7 +208,7 @@ def generate_batch_data(filename="energy_data.csv", records_per_region=5000):
                     "production": round(production, 2),
                     "consumption": round(consumption, 2),
                     "voltage": round(random.uniform(220, 240), 2),
-                    "frequency": round(random.uniform(49.8, 50.2), 2),
+                    "frequency": round(50.0 + (production - consumption) / 5000.0 + random.uniform(-0.05, 0.05), 2),
                     "equipment_status": equipment_status,
                 })
                 current_time += timedelta(hours=1)

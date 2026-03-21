@@ -1,3 +1,4 @@
+import os
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.regression import LinearRegression
 from pyspark.sql import SparkSession
@@ -11,6 +12,11 @@ MODEL_PATH = "/opt/spark/apps/ml_models/forecasting_model"
 
 
 def main():
+    # Check if the model is already trained and valid
+    if os.path.exists(os.path.join(MODEL_PATH, "metadata")):
+        print(f"Model already exists at {MODEL_PATH}. Skipping training.")
+        return
+
     spark = (
         SparkSession.builder.appName("EnergyForecastingTraining")
         .master(SPARK_MASTER)
