@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import avg, col
+from pyspark.sql.functions import col
 
 # Spark and Cassandra configuration
 SPARK_MASTER = "spark://spark-master:7077"
@@ -24,14 +24,18 @@ def main():
     # Read data from HDFS
     df = spark.read.csv(HDFS_INPUT_PATH, header=True, inferSchema=True)
 
-    # Perform aggregations
-    agg_df = df.groupBy("region").agg(
-        avg("production").alias("avg_production"),
-        avg("consumption").alias("avg_consumption"),
+    # Invert/Cast columns if necessary to match Cassandra
+    from pyspark.sql.functions import to_timestamp
+    df = df.withColumn("timestamp", to_timestamp(col("timestamp")))
+
+    # Select columns to match Cassandra table
+    final_df = df.select(
+        "timestamp", "region", "power_plant", "consumer_type",
+        "production", "consumption", "voltage", "frequency", "equipment_status"
     )
 
-    # Write aggregated data to Cassandra
-    agg_df.write.format("org.apache.spark.sql.cassandra").options(
+    # Write data to Cassandra
+    final_df.write.format("org.apache.spark.sql.cassandra").options(
         table=CASSANDRA_TABLE, keyspace=CASSANDRA_KEYSPACE
     ).mode("append").save()
 

@@ -15,6 +15,7 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # Connect to Cassandra with retry mechanism
 def connect_to_cassandra():
     while True:
@@ -30,8 +31,10 @@ def connect_to_cassandra():
             logger.error(f"Waiting for Cassandra/Keyspace... Error: {e}")
             time.sleep(5)
 
+
 # Global session variable for reuse
 _session = None
+
 
 def get_session():
     global _session
@@ -48,19 +51,19 @@ def read_root():
 @app.get("/metrics")
 def get_metrics():
     session = get_session()
-    rows = session.execute("SELECT * FROM energy_data LIMIT 100")
+    rows = session.execute("SELECT * FROM energy_data LIMIT 500")
     return list(rows)
 
 
 @app.get("/anomalies")
 def get_anomalies():
     session = get_session()
-    rows = session.execute("SELECT * FROM anomaly_data LIMIT 100")
+    rows = session.execute("SELECT * FROM anomaly_data LIMIT 500")
     return list(rows)
 
 
 @app.get("/forecast")
 def get_forecast():
     session = get_session()
-    rows = session.execute("SELECT * FROM power_forecast LIMIT 100")
+    rows = session.execute("SELECT * FROM power_forecast LIMIT 500")
     return list(rows)

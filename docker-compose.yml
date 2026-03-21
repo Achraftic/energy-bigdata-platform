@@ -45,11 +45,15 @@ services:
   spark-master:
     image: apache/spark:3.5.0-python3
     container_name: spark-master
+    user: root
     ports:
       - "8080:8080"
       - "7077:7077"
     networks:
       - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
     environment:
       - SPARK_MODE=master
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
@@ -70,10 +74,13 @@ services:
         condition: service_healthy
     networks:
       - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
     environment:
       - SPARK_MODE=worker
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=4
+      - SPARK_WORKER_MEMORY=4G
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
 
@@ -208,8 +215,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      cassandra:
-        condition: service_healthy
+      cassandra-setup:
+        condition: service_completed_successfully
     networks:
       - default
     volumes:
@@ -231,8 +238,10 @@ services:
     depends_on:
       spark-master:
         condition: service_healthy
-      cassandra:
-        condition: service_healthy
+      cassandra-setup:
+        condition: service_completed_successfully
+      hdfs-data-loader:
+        condition: service_completed_successfully
     networks:
       - default
     volumes:
@@ -265,14 +274,63 @@ services:
         echo "Initializing HDFS config...";
         export HADOOP_CONF_DIR=/etc/hadoop;
         echo "Starting HDFS loader...";
-        until hdfs dfs -ls / > /dev/null 2>&1; do
+        until hdfs dfs -fs hdfs://namenode:9000 -ls / > /dev/null 2>&1; do
           echo "Waiting for NameNode...";
           sleep 2;
         done;
-        hdfs dfs -mkdir -p /user/root;
-        hdfs dfs -put -f /energy_data.csv /user/root/energy_data.csv;
+        echo "Waiting for safemode to be OFF...";
+        hdfs dfsadmin -fs hdfs://namenode:9000 -safemode wait || true;
+        hdfs dfs -fs hdfs://namenode:9000 -mkdir -p /user/root;
+        hdfs dfs -fs hdfs://namenode:9000 -put -f /energy_data.csv /user/root/energy_data.csv;
         echo "Upload complete!";
-        hdfs dfs -ls /user/root/;
+        hdfs dfs -fs hdfs://namenode:9000 -ls /user/root/;
+
+  spark-ml-train:
+    image: apache/spark:3.5.0-python3
+    container_name: spark-ml-train
+    user: root
+    depends_on:
+      cassandra-setup:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      spark-batch:
+        condition: service_completed_successfully
+    networks:
+      - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
+    command: >
+      /bin/bash -c "pip install numpy && /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --executor-memory 1g
+      --total-executor-cores 1
+      --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0
+      /opt/spark/apps/ml_models/forecasting_model.py"
+
+
+  spark-ml-forecast:
+    image: apache/spark:3.5.0-python3
+    container_name: spark-ml-forecast
+    user: root
+    depends_on:
+      spark-ml-train:
+        condition: service_completed_successfully
+    networks:
+      - default
+    volumes:
+      - ./spark_jobs:/opt/spark/apps/spark_jobs
+      - ./ml_models:/opt/spark/apps/ml_models
+    command: >
+      /bin/bash -c "pip install numpy && /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --executor-memory 512m
+      --total-executor-cores 1
+      --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0
+      /opt/spark/apps/spark_jobs/forecasting_job.py"
+
+
 volumes:
   cassandra_data:
   namenode_data_new:

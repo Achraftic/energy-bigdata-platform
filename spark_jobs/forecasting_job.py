@@ -10,7 +10,7 @@ CASSANDRA_HOST = "cassandra"
 CASSANDRA_KEYSPACE = "energy_analysis"
 INPUT_TABLE = "energy_data"
 OUTPUT_TABLE = "power_forecast"
-MODEL_PATH = "/app/ml_models/forecasting_model"
+MODEL_PATH = "/opt/spark/apps/ml_models/forecasting_model"
 
 
 def main():
@@ -19,7 +19,7 @@ def main():
         .master(SPARK_MASTER)
         .config(
             "spark.jars.packages",
-            "com.datastax.spark:spark-cassandra-connector_2.12:3.2.0",
+            "com.datastax.spark:spark-cassandra-connector_2.12:3.5.0",
         )
         .config("spark.cassandra.connection.host", CASSANDRA_HOST)
         .getOrCreate()
