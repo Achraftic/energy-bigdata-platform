@@ -7,7 +7,7 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: 'ruok,stat,conf,imok'
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,stat,conf,imok"
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
@@ -26,7 +26,7 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092,PLAINTEXT_INTERNAL://kafka:29092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
@@ -34,7 +34,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 30000
       KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 30000
     healthcheck:
@@ -49,7 +49,6 @@ services:
     user: root
     ports:
       - "8080:8080"
-      - "7077:7077"
     networks:
       - default
     volumes:
@@ -311,7 +310,6 @@ services:
       --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0
       /opt/spark/apps/ml_models/forecasting_model.py"
 
-
   spark-ml-forecast:
     image: apache/spark:3.5.0-python3
     container_name: spark-ml-forecast
@@ -331,7 +329,6 @@ services:
       --total-executor-cores 1
       --packages com.datastax.spark:spark-cassandra-connector_2.12:3.5.0
       /opt/spark/apps/spark_jobs/forecasting_job.py"
-
 
 volumes:
   cassandra_data:
